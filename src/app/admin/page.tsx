@@ -8,6 +8,11 @@ import { ActivityFeed } from "@/components/admin/dashboard/activity-feed";
 import { ErrorState } from "@/components/admin/states";
 import { HardDrive, RefreshCw } from "lucide-react";
 
+// Force this page to always fetch live data on every request (no caching)
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 export default async function AdminDashboardPage() {
   // 1. Guard route access for staff roles
   let session;

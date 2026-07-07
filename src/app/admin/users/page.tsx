@@ -14,6 +14,11 @@ import {
   Shield,
 } from "lucide-react";
 
+// Force live DB query on every request — never serve a cached user list
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 interface UsersPageProps {
   searchParams: Promise<{
     query?: string;
