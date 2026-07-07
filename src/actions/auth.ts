@@ -72,7 +72,7 @@ export async function loginStaff(prevState: any, formData: FormData) {
     console.error("Staff login action failure:", error);
     return {
       success: false,
-      error: "An internal server error occurred. Please contact system administrators.",
+      error: `Internal Error: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
