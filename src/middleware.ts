@@ -4,7 +4,7 @@ import { jwtVerify } from "jose";
 
 const SESSION_COOKIE_NAME = "redresumes_admin_session";
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "fallback-secret-key-at-least-32-chars-long"
+  process.env.JWT_SECRET
 );
 
 // Paths that do not require authentication
@@ -64,8 +64,8 @@ export async function middleware(request: NextRequest) {
           "/admin/users",
           "/admin/logs"
         ];
-        
-        const isPathAllowed = allowedSupportPaths.some(p => 
+
+        const isPathAllowed = allowedSupportPaths.some(p =>
           pathname === p || pathname.startsWith(p + "/")
         );
 

@@ -13,7 +13,7 @@ export interface SessionPayload {
 }
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "fallback-secret-key-at-least-32-chars-long"
+  process.env.JWT_SECRET
 );
 const SESSION_COOKIE_NAME = "redresumes_admin_session";
 
@@ -101,7 +101,7 @@ export function hasRequiredRole(userRole: UserRole, allowedRoles: UserRole[]): b
  */
 export async function ensureAuthorized(allowedRoles: UserRole[]): Promise<SessionPayload> {
   const session = await getSession();
-  
+
   if (!session) {
     throw new Error("UNAUTHENTICATED");
   }
