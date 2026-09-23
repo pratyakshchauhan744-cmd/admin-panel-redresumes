@@ -63,7 +63,7 @@ export async function sendInstitutionWelcomeEmail({
   `;
 
   const resendApiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.EMAIL_FROM || "RedResumes Enterprise <onboarding@resend.dev>";
+  const fromEmail = process.env.EMAIL_FROM";
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
