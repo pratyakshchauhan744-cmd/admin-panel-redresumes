@@ -63,6 +63,7 @@ export function CollegesView({
     mainFacultyName: "",
     mainFacultyEmail: "",
     mainFacultyPhone: "",
+    password: "",
   });
 
   // Form states - Credit Allocation
@@ -105,7 +106,7 @@ export function CollegesView({
       if (res.success) {
         setFeedback({
           type: "success",
-          message: `College "${onboardData.name}" onboarded! Temporary credentials for ${res.facultyEmail}: ${res.tempPassword}`,
+          message: `College "${onboardData.name}" onboarded successfully! Welcome email with login credentials has been sent to ${res.facultyEmail}. (Password: ${res.tempPassword})`,
         });
         setIsOnboardOpen(false);
         setOnboardData({
@@ -118,6 +119,7 @@ export function CollegesView({
           mainFacultyName: "",
           mainFacultyEmail: "",
           mainFacultyPhone: "",
+          password: "",
         });
         router.refresh();
       } else {
@@ -606,6 +608,23 @@ export function CollegesView({
                       }
                       className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500"
                     />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">
+                      Initial Login Password (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Leave blank to auto-generate secure password"
+                      value={onboardData.password}
+                      onChange={(e) =>
+                        setOnboardData({ ...onboardData, password: e.target.value })
+                      }
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500 font-mono"
+                    />
+                    <p className="text-[11px] text-zinc-500 mt-1">
+                      If left empty, a secure password is generated automatically. The credentials and enterprise portal link will be emailed to the administrator.
+                    </p>
                   </div>
                 </div>
               </div>

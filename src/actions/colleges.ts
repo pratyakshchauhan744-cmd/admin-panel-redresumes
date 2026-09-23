@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthorized } from "@/lib/auth";
 import { logAdminAction } from "@/lib/audit";
+import { sendInstitutionWelcomeEmail } from "@/lib/email";
 
 const CreateCollegeSchema = z.object({
   name: z.string().min(2, "College name must be at least 2 characters"),
@@ -18,6 +19,7 @@ const CreateCollegeSchema = z.object({
   mainFacultyName: z.string().min(2, "Main faculty name is required"),
   mainFacultyEmail: z.string().email("Main faculty email must be valid"),
   mainFacultyPhone: z.string().optional(),
+  password: z.string().optional(),
 });
 
 const AllocateCreditsSchema = z.object({
@@ -32,7 +34,7 @@ const UpdateStatusSchema = z.object({
 });
 
 export async function createCollege(rawInput: unknown): Promise<
-  | { success: true; college: any; facultyEmail: string; tempPassword?: string }
+  | { success: true; college: any; facultyEmail: string; tempPassword?: string; emailSent?: boolean }
   | { success: false; error: string }
 > {
   let session;
@@ -57,6 +59,7 @@ export async function createCollege(rawInput: unknown): Promise<
     mainFacultyName,
     mainFacultyEmail,
     mainFacultyPhone,
+    password,
   } = validated.data;
 
   try {
@@ -97,7 +100,10 @@ export async function createCollege(rawInput: unknown): Promise<
       });
 
       // 3. Create or find Main Faculty User
-      const tempPassword = `Campus@${crypto.randomBytes(3).toString("hex")}!`;
+      const tempPassword =
+        password && password.trim().length >= 6
+          ? password.trim()
+          : `Campus@${crypto.randomBytes(3).toString("hex")}!`;
       const passwordHash = await bcrypt.hash(tempPassword, 12);
 
       let facultyUser = await tx.user.findUnique({
@@ -206,8 +212,27 @@ export async function createCollege(rawInput: unknown): Promise<
       };
     });
 
+    // 8. Dispatch Institutional Welcome Email with Credentials & Portal URL
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:5173";
+    const loginUrl = `${appUrl}/login?portal=enterprise`;
+
+    let emailSent = false;
+    try {
+      const emailRes = await sendInstitutionWelcomeEmail({
+        to: mainFacultyEmail,
+        recipientName: mainFacultyName,
+        collegeName: name,
+        collegeCode: code,
+        password: result.tempPassword,
+        loginUrl,
+      });
+      emailSent = Boolean(emailRes.success);
+    } catch (emailErr) {
+      console.error("Failed to dispatch welcome email to institution:", emailErr);
+    }
+
     revalidatePath("/admin/colleges");
-    return { success: true, ...result };
+    return { success: true, ...result, emailSent };
   } catch (error: any) {
     console.error("Failed to create college:", error);
     return { success: false, error: error.message || "Failed to onboard college" };
