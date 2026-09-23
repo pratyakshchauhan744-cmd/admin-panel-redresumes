@@ -9,7 +9,7 @@ interface Transaction {
   packageName: string;
   creditsAdded: number;
   paymentAmount: number;
-  razorpayPaymentId: string;
+  razorpayPaymentId: string | null;
   status: string;
   createdAt: Date | string;
   user: {
