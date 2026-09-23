@@ -62,7 +62,7 @@ export async function sendInstitutionWelcomeEmail({
     </div>
   `;
 
-  const resendApiKey = process.env.RESEND_API_KEY || "re_7yzwRKNz_LbFkNLCUq6A3uU6QueaQpASA";
+  const resendApiKey = process.env.RESEND_API_KEY;
   const fromEmail = process.env.EMAIL_FROM || "RedResumes Enterprise <onboarding@resend.dev>";
 
   try {
