@@ -26,15 +26,25 @@ export async function loginStaff(prevState: any, formData: FormData) {
   try {
     // 2. Fetch user from database with automatic retry for proxy latency
     let user = null;
+    const authSelect = {
+      id: true,
+      email: true,
+      passwordHash: true,
+      role: true,
+      isActive: true,
+    };
+
     try {
       user = await prisma.user.findUnique({
         where: { email },
+        select: authSelect,
       });
     } catch (dbErr) {
       console.warn("Initial DB connection attempt failed, retrying...", dbErr);
       await new Promise((res) => setTimeout(res, 500));
       user = await prisma.user.findUnique({
         where: { email },
+        select: authSelect,
       });
     }
 
@@ -42,6 +52,13 @@ export async function loginStaff(prevState: any, formData: FormData) {
       return {
         success: false,
         error: "Invalid email address or credentials",
+      };
+    }
+
+    if (!user.isActive) {
+      return {
+        success: false,
+        error: "Access denied: Account has been suspended",
       };
     }
 

@@ -8,12 +8,13 @@ import { prisma } from "@/lib/prisma";
 import { ensureAuthorized } from "@/lib/auth";
 import { logAdminAction } from "@/lib/audit";
 import { sendInstitutionWelcomeEmail } from "@/lib/email";
+import { invalidateTelemetryCache } from "@/lib/dashboard-queries";
 
 const CreateCollegeSchema = z.object({
   name: z.string().min(2, "College name must be at least 2 characters"),
   code: z.string().min(2, "Code must be at least 2 characters").toUpperCase(),
   domain: z.string().min(3, "Domain is required"),
-  contactEmail: z.string().email("Valid contact email is required"),
+  contactEmail: z.string(),
   contactPhone: z.string().optional(),
   initialCredits: z.number().int().min(0).default(0),
   mainFacultyName: z.string().min(2, "Main faculty name is required"),
@@ -76,62 +77,69 @@ export async function createCollege(rawInput: unknown): Promise<
       };
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Create College record
-      const college = await tx.college.create({
-        data: {
-          name,
-          code,
-          officialEmail: contactEmail.toLowerCase(),
-          contactPhone: contactPhone || null,
-          website: domain.startsWith("http") ? domain : `https://${domain}`,
-          status: "active",
-        },
-      });
+    // Pre-compute crypto & bcrypt hashes outside of the database transaction
+    const tempPassword =
+      password && password.trim().length >= 6
+        ? password.trim()
+        : `Campus@${crypto.randomBytes(3).toString("hex")}!`;
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-      // 2. Create College Credit Account
-      await tx.collegeCreditAccount.create({
-        data: {
-          collegeId: college.id,
-          balance: initialCredits,
-          totalAllocated: initialCredits,
-          totalDistributed: 0,
-        },
-      });
+    const inviteToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(inviteToken).digest("hex");
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
 
-      // 3. Create or find Main Faculty User
-      const tempPassword =
-        password && password.trim().length >= 6
-          ? password.trim()
-          : `Campus@${crypto.randomBytes(3).toString("hex")}!`;
-      const passwordHash = await bcrypt.hash(tempPassword, 12);
-
-      let facultyUser = await tx.user.findUnique({
-        where: { email: mainFacultyEmail.toLowerCase() },
-      });
-
-      if (!facultyUser) {
-        facultyUser = await tx.user.create({
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // 1. Create College record
+        const college = await tx.college.create({
           data: {
-            name: mainFacultyName,
-            email: mainFacultyEmail.toLowerCase(),
-            phone: mainFacultyPhone || null,
-            passwordHash,
-            role: "college_main_faculty",
-            collegeId: college.id,
-            isActive: true,
+            name,
+            code,
+            officialEmail: contactEmail.toLowerCase(),
+            contactPhone: contactPhone || null,
+            website: domain.startsWith("http") ? domain : `https://${domain}`,
+            status: "active",
           },
         });
-      } else {
-        await tx.user.update({
-          where: { id: facultyUser.id },
+
+        // 2. Create College Credit Account
+        await tx.collegeCreditAccount.create({
           data: {
-            role: "college_main_faculty",
             collegeId: college.id,
-            isActive: true,
+            balance: initialCredits,
+            totalAllocated: initialCredits,
+            totalDistributed: 0,
           },
         });
-      }
+
+        // 3. Create or update Main Faculty User
+        let facultyUser = await tx.user.findUnique({
+          where: { email: mainFacultyEmail.toLowerCase() },
+        });
+
+        if (!facultyUser) {
+          facultyUser = await tx.user.create({
+            data: {
+              name: mainFacultyName,
+              email: mainFacultyEmail.toLowerCase(),
+              phone: mainFacultyPhone || null,
+              passwordHash,
+              role: "college_main_faculty",
+              collegeId: college.id,
+              isActive: true,
+            },
+          });
+        } else {
+          facultyUser = await tx.user.update({
+            where: { id: facultyUser.id },
+            data: {
+              role: "college_main_faculty",
+              collegeId: college.id,
+              passwordHash,
+              isActive: true,
+            },
+          });
+        }
 
       // 4. Link User to College as Main Faculty
       await tx.collegeFaculty.create({
@@ -190,27 +198,36 @@ export async function createCollege(rawInput: unknown): Promise<
         });
       }
 
-      // 7. Audit log
-      await logAdminAction({
-        tx,
-        actorId: session.userId,
-        action: "ONBOARD_COLLEGE",
-        entityType: "College",
-        entityId: college.id,
-        newValue: {
-          name,
-          code,
-          initialCredits,
-          mainFacultyEmail,
-        },
-      });
+        // 7. Audit log
+        await logAdminAction({
+          tx,
+          actorId: session.userId,
+          action: "ONBOARD_COLLEGE",
+          targetType: "College",
+          entityType: "College",
+          entityId: college.id,
+          targetId: college.id,
+          newValue: {
+            name,
+            code,
+            initialCredits,
+            mainFacultyEmail,
+          },
+        });
 
-      return {
-        college,
-        facultyEmail: mainFacultyEmail,
-        tempPassword,
-      };
-    });
+        return {
+          college,
+          facultyEmail: mainFacultyEmail,
+          tempPassword,
+        };
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
+
+    invalidateTelemetryCache();
 
     // 8. Dispatch Institutional Welcome Email with Credentials & Portal URL
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:5173";
@@ -307,7 +324,12 @@ export async function allocateCollegeCredits(rawInput: unknown): Promise<
       });
 
       return { balance: updatedAccount.balance, totalAllocated: updatedAccount.totalAllocated };
+    }, {
+      maxWait: 20000,
+      timeout: 60000,
     });
+
+    invalidateTelemetryCache();
 
     revalidatePath(`/admin/colleges`);
     revalidatePath(`/admin/colleges/${collegeId}`);

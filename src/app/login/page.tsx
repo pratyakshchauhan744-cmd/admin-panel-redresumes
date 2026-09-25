@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition, useEffect, Suspense } from "react";
+import React, { useState, useTransition, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loginStaff } from "@/actions/auth";
 import { ShieldCheck, Lock, Mail, Sparkles, Loader2 } from "lucide-react";
@@ -23,6 +23,9 @@ function LoginForm() {
       try {
         const res = await loginStaff(state, formData);
         setState(res);
+        if (res.success) {
+          router.push(callbackUrl);
+        }
       } catch (err: any) {
         console.error("Login submission error:", err);
         setState({
@@ -32,14 +35,6 @@ function LoginForm() {
       }
     });
   };
-
-  // Redirect client-side once auth succeeds
-  useEffect(() => {
-    if (state.success) {
-      router.push(callbackUrl);
-      router.refresh();
-    }
-  }, [state.success, callbackUrl, router]);
 
   return (
     <main className="min-h-screen w-screen flex items-center justify-center bg-zinc-950 p-6 relative select-none">
