@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useActionState, useEffect, Suspense } from "react";
+import React, { useState, useTransition, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loginStaff } from "@/actions/auth";
 import { ShieldCheck, Lock, Mail, Sparkles, Loader2 } from "lucide-react";
@@ -10,10 +10,28 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/admin";
 
-  const [state, formAction, isPending] = useActionState(loginStaff, {
+  const [state, setState] = useState<{ success: boolean; error: string | null }>({
     success: false,
     error: null,
   });
+  const [isPending, startTransition] = useTransition();
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    startTransition(async () => {
+      try {
+        const res = await loginStaff(state, formData);
+        setState(res);
+      } catch (err: any) {
+        console.error("Login submission error:", err);
+        setState({
+          success: false,
+          error: "Connection timeout or server unreachable. Please try again.",
+        });
+      }
+    });
+  };
 
   // Redirect client-side once auth succeeds
   useEffect(() => {
@@ -42,7 +60,7 @@ function LoginForm() {
         </div>
 
         {/* Action Form */}
-        <form action={formAction} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           {/* Email input field */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">

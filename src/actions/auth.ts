@@ -24,10 +24,19 @@ export async function loginStaff(prevState: any, formData: FormData) {
   }
 
   try {
-    // 2. Fetch user from database
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
+    // 2. Fetch user from database with automatic retry for proxy latency
+    let user = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { email },
+      });
+    } catch (dbErr) {
+      console.warn("Initial DB connection attempt failed, retrying...", dbErr);
+      await new Promise((res) => setTimeout(res, 500));
+      user = await prisma.user.findUnique({
+        where: { email },
+      });
+    }
 
     if (!user) {
       return {
