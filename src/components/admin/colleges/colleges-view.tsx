@@ -100,6 +100,7 @@ export function CollegesView({
     startTransition(async () => {
       const res = await createCollege({
         ...onboardData,
+        contactEmail: onboardData.contactEmail.trim() || onboardData.mainFacultyEmail.trim(),
         initialCredits: Number(onboardData.initialCredits),
       });
 
@@ -555,6 +556,30 @@ export function CollegesView({
                         setOnboardData({ ...onboardData, initialCredits: Number(e.target.value) })
                       }
                       className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">
+                      Official / Placement Email (Optional)
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="e.g. placements@stanford.edu (defaults to Faculty Email)"
+                      value={onboardData.contactEmail}
+                      onChange={(e) => setOnboardData({ ...onboardData, contactEmail: e.target.value })}
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-300 mb-1">
+                      Institution Phone (Optional)
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="e.g. +91 9876543210"
+                      value={onboardData.contactPhone}
+                      onChange={(e) => setOnboardData({ ...onboardData, contactPhone: e.target.value })}
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500"
                     />
                   </div>
                 </div>

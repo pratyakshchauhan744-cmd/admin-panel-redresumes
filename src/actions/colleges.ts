@@ -9,18 +9,19 @@ import { ensureAuthorized } from "@/lib/auth";
 import { logAdminAction } from "@/lib/audit";
 import { sendInstitutionWelcomeEmail } from "@/lib/email";
 import { invalidateTelemetryCache } from "@/lib/dashboard-queries";
+import { invalidateCollegeStatsCache } from "@/lib/college-queries";
 
 const CreateCollegeSchema = z.object({
   name: z.string().min(2, "College name must be at least 2 characters"),
   code: z.string().min(2, "Code must be at least 2 characters").toUpperCase(),
   domain: z.string().min(3, "Domain is required"),
-  contactEmail: z.string(),
-  contactPhone: z.string().optional(),
+  contactEmail: z.string().optional().or(z.literal("")),
+  contactPhone: z.string().optional().or(z.literal("")),
   initialCredits: z.number().int().min(0).default(0),
   mainFacultyName: z.string().min(2, "Main faculty name is required"),
   mainFacultyEmail: z.string().email("Main faculty email must be valid"),
-  mainFacultyPhone: z.string().optional(),
-  password: z.string().optional(),
+  mainFacultyPhone: z.string().optional().or(z.literal("")),
+  password: z.string().optional().or(z.literal("")),
 });
 
 const AllocateCreditsSchema = z.object({
@@ -40,7 +41,7 @@ export async function createCollege(rawInput: unknown): Promise<
 > {
   let session;
   try {
-    session = await ensureAuthorized(["admin"]);
+    session = await ensureAuthorized(["admin", "super_admin" as any]);
   } catch (error) {
     return { success: false, error: "Access denied: Super Admin authorization required" };
   }
@@ -63,18 +64,45 @@ export async function createCollege(rawInput: unknown): Promise<
     password,
   } = validated.data;
 
+  const effectiveContactEmail =
+    contactEmail && contactEmail.trim().length > 0
+      ? contactEmail.trim().toLowerCase()
+      : mainFacultyEmail.trim().toLowerCase();
+
   try {
     const existingCollege = await prisma.college.findFirst({
       where: {
-        OR: [{ code }, { officialEmail: contactEmail.toLowerCase() }],
+        OR: [{ code }, { officialEmail: effectiveContactEmail }],
       },
     });
 
     if (existingCollege) {
+      if (existingCollege.code.toUpperCase() === code.toUpperCase()) {
+        return {
+          success: false,
+          error: `A college with code "${code}" already exists (${existingCollege.name}).`,
+        };
+      }
       return {
         success: false,
-        error: `A college with code "${code}" or email "${contactEmail}" already exists.`,
+        error: `A college with official email "${effectiveContactEmail}" already exists (${existingCollege.name}).`,
       };
+    }
+
+    // Ensure session user exists in DB for foreign key relations
+    let adminUserId = session.userId;
+    const sessionUserInDb = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true },
+    });
+    if (!sessionUserInDb) {
+      const fallbackStaff = await prisma.user.findFirst({
+        where: { role: { in: ["admin", "super_admin"] } },
+        select: { id: true },
+      });
+      if (fallbackStaff) {
+        adminUserId = fallbackStaff.id;
+      }
     }
 
     // Pre-compute crypto & bcrypt hashes outside of the database transaction
@@ -84,10 +112,6 @@ export async function createCollege(rawInput: unknown): Promise<
         : `Campus@${crypto.randomBytes(3).toString("hex")}!`;
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    const inviteToken = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(inviteToken).digest("hex");
-    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
-
     const result = await prisma.$transaction(
       async (tx) => {
         // 1. Create College record
@@ -95,8 +119,8 @@ export async function createCollege(rawInput: unknown): Promise<
           data: {
             name,
             code,
-            officialEmail: contactEmail.toLowerCase(),
-            contactPhone: contactPhone || null,
+            officialEmail: effectiveContactEmail,
+            contactPhone: contactPhone || mainFacultyPhone || null,
             website: domain.startsWith("http") ? domain : `https://${domain}`,
             status: "active",
           },
@@ -141,67 +165,85 @@ export async function createCollege(rawInput: unknown): Promise<
           });
         }
 
-      // 4. Link User to College as Main Faculty
-      await tx.collegeFaculty.create({
-        data: {
-          collegeId: college.id,
-          userId: facultyUser.id,
-          employeeId: `FAC-${code}-001`,
-          department: "Administration / Placement Cell",
-          designation: "Head of Placements & Main Faculty Admin",
-          isMainFaculty: true,
-          permissions: [
-            "all",
-            "manageFaculty",
-            "manageStudents",
-            "distributeCredits",
-            "viewAnalytics",
-            "exportReports",
-          ],
-          status: "active",
-        },
-      });
+        // 4. Link User to College as Main Faculty (upsert to prevent unique constraint crash)
+        const existingFacultyProfile = await tx.collegeFaculty.findUnique({
+          where: { userId: facultyUser.id },
+        });
 
-      // 5. Create Invitation Token
-      const inviteToken = crypto.randomBytes(32).toString("hex");
-      const tokenHash = crypto.createHash("sha256").update(inviteToken).digest("hex");
-      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
+        if (existingFacultyProfile) {
+          await tx.collegeFaculty.update({
+            where: { id: existingFacultyProfile.id },
+            data: {
+              collegeId: college.id,
+              employeeId: `FAC-${code}-001`,
+              department: "Administration / Placement Cell",
+              designation: "Head of Placements & Main Faculty Admin",
+              isMainFaculty: true,
+              status: "active",
+            },
+          });
+        } else {
+          await tx.collegeFaculty.create({
+            data: {
+              collegeId: college.id,
+              userId: facultyUser.id,
+              employeeId: `FAC-${code}-001`,
+              department: "Administration / Placement Cell",
+              designation: "Head of Placements & Main Faculty Admin",
+              isMainFaculty: true,
+              permissions: [
+                "all",
+                "manageFaculty",
+                "manageStudents",
+                "distributeCredits",
+                "viewAnalytics",
+                "exportReports",
+              ],
+              status: "active",
+            },
+          });
+        }
 
-      await tx.invitation.create({
-        data: {
-          collegeId: college.id,
-          email: mainFacultyEmail.toLowerCase(),
-          role: "college_main_faculty",
-          tokenHash,
-          status: "accepted",
-          expiresAt,
-          acceptedAt: new Date(),
-          invitedById: session.userId,
-          metadata: {
-            isMainFaculty: true,
-            createdVia: "SUPER_ADMIN_ONBOARDING",
-          },
-        },
-      });
+        // 5. Create Invitation Token
+        const inviteToken = crypto.randomBytes(32).toString("hex");
+        const tokenHash = crypto.createHash("sha256").update(inviteToken).digest("hex");
+        const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
 
-      // 6. If initial credits allocated, log transaction
-      if (initialCredits > 0) {
-        await tx.collegeCreditTransaction.create({
+        await tx.invitation.create({
           data: {
             collegeId: college.id,
-            amount: initialCredits,
-            balanceAfter: initialCredits,
-            type: "SUPER_ADMIN_ALLOCATION",
-            reason: `Initial credit grant upon institutional onboarding`,
-            createdById: session.userId,
+            email: mainFacultyEmail.toLowerCase(),
+            role: "college_main_faculty",
+            tokenHash,
+            status: "accepted",
+            expiresAt,
+            acceptedAt: new Date(),
+            invitedById: adminUserId,
+            metadata: {
+              isMainFaculty: true,
+              createdVia: "SUPER_ADMIN_ONBOARDING",
+            },
           },
         });
-      }
+
+        // 6. If initial credits allocated, log transaction
+        if (initialCredits > 0) {
+          await tx.collegeCreditTransaction.create({
+            data: {
+              collegeId: college.id,
+              amount: initialCredits,
+              balanceAfter: initialCredits,
+              type: "SUPER_ADMIN_ALLOCATION",
+              reason: `Initial credit grant upon institutional onboarding`,
+              createdById: adminUserId,
+            },
+          });
+        }
 
         // 7. Audit log
         await logAdminAction({
           tx,
-          actorId: session.userId,
+          actorId: adminUserId,
           action: "ONBOARD_COLLEGE",
           targetType: "College",
           entityType: "College",
@@ -228,9 +270,10 @@ export async function createCollege(rawInput: unknown): Promise<
     );
 
     invalidateTelemetryCache();
+    invalidateCollegeStatsCache();
 
     // 8. Dispatch Institutional Welcome Email with Credentials & Portal URL
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:5173";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
     const loginUrl = `${appUrl}/login?portal=enterprise`;
 
     let emailSent = false;
@@ -262,7 +305,7 @@ export async function allocateCollegeCredits(rawInput: unknown): Promise<
 > {
   let session;
   try {
-    session = await ensureAuthorized(["admin"]);
+    session = await ensureAuthorized(["admin", "super_admin" as any]);
   } catch (error) {
     return { success: false, error: "Access denied: Super Admin authorization required" };
   }
@@ -275,6 +318,19 @@ export async function allocateCollegeCredits(rawInput: unknown): Promise<
   const { collegeId, amount, description } = validated.data;
 
   try {
+    let adminUserId = session.userId;
+    const sessionUserInDb = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true },
+    });
+    if (!sessionUserInDb) {
+      const fallbackStaff = await prisma.user.findFirst({
+        where: { role: { in: ["admin", "super_admin"] } },
+        select: { id: true },
+      });
+      if (fallbackStaff) adminUserId = fallbackStaff.id;
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       let account = await tx.collegeCreditAccount.findUnique({
         where: { collegeId },
@@ -309,13 +365,13 @@ export async function allocateCollegeCredits(rawInput: unknown): Promise<
           balanceAfter: newBalance,
           type: "SUPER_ADMIN_ALLOCATION",
           reason: description,
-          createdById: session.userId,
+          createdById: adminUserId,
         },
       });
 
       await logAdminAction({
         tx,
-        actorId: session.userId,
+        actorId: adminUserId,
         action: "ALLOCATE_COLLEGE_CREDITS",
         entityType: "CollegeCreditAccount",
         entityId: account.id,
@@ -330,6 +386,7 @@ export async function allocateCollegeCredits(rawInput: unknown): Promise<
     });
 
     invalidateTelemetryCache();
+    invalidateCollegeStatsCache();
 
     revalidatePath(`/admin/colleges`);
     revalidatePath(`/admin/colleges/${collegeId}`);
@@ -346,9 +403,9 @@ export async function updateCollegeStatus(rawInput: unknown): Promise<
 > {
   let session;
   try {
-    session = await ensureAuthorized(["admin"]);
+    session = await ensureAuthorized(["admin", "super_admin" as any, "manager" as any]);
   } catch (error) {
-    return { success: false, error: "Access denied: Super Admin authorization required" };
+    return { success: false, error: "Access denied: Staff authorization required" };
   }
 
   const validated = UpdateStatusSchema.safeParse(rawInput);
@@ -359,6 +416,19 @@ export async function updateCollegeStatus(rawInput: unknown): Promise<
   const { collegeId, status } = validated.data;
 
   try {
+    let adminUserId = session.userId;
+    const sessionUserInDb = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true },
+    });
+    if (!sessionUserInDb) {
+      const fallbackStaff = await prisma.user.findFirst({
+        where: { role: { in: ["admin", "super_admin"] } },
+        select: { id: true },
+      });
+      if (fallbackStaff) adminUserId = fallbackStaff.id;
+    }
+
     const oldCollege = await prisma.college.findUnique({ where: { id: collegeId } });
     if (!oldCollege) {
       return { success: false, error: "College not found" };
@@ -370,13 +440,16 @@ export async function updateCollegeStatus(rawInput: unknown): Promise<
     });
 
     await logAdminAction({
-      actorId: session.userId,
+      actorId: adminUserId,
       action: "UPDATE_COLLEGE_STATUS",
       entityType: "College",
       entityId: collegeId,
       oldValue: { status: oldCollege.status },
       newValue: { status },
     });
+
+    invalidateTelemetryCache();
+    invalidateCollegeStatsCache();
 
     revalidatePath("/admin/colleges");
     return { success: true, college: updated };

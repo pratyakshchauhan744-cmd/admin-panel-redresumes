@@ -29,10 +29,8 @@ export default async function AdminCollegesPage({ searchParams }: CollegesPagePr
   const page = parseInt(resolvedParams.page || "1", 10);
   const limit = 15;
 
-  const [{ colleges, total, pages }, stats] = await Promise.all([
-    getPaginatedColleges({ query, status, page, limit }),
-    getCollegeStats(),
-  ]);
+  const stats = await getCollegeStats();
+  const { colleges, total, pages } = await getPaginatedColleges({ query, status, page, limit });
 
   return (
     <PageContainer

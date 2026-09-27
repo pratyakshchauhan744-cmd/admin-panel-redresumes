@@ -7,6 +7,14 @@ export interface CollegeListFilter {
   limit?: number;
 }
 
+// In-memory cache for college stats with a 30-second TTL to avoid proxy connection bottleneck
+let cachedStats: { data: any; timestamp: number } | null = null;
+const STATS_CACHE_TTL_MS = 30 * 1000;
+
+export function invalidateCollegeStatsCache() {
+  cachedStats = null;
+}
+
 export async function getPaginatedColleges(filters: CollegeListFilter = {}) {
   const page = filters.page || 1;
   const limit = filters.limit || 15;
@@ -27,8 +35,8 @@ export async function getPaginatedColleges(filters: CollegeListFilter = {}) {
     where.status = filters.status;
   }
 
-  try {
-    const [colleges, total] = await Promise.all([
+  const queryFn = async () => {
+    const [collegesResult, totalResult] = await Promise.allSettled([
       prisma.college.findMany({
         where,
         skip,
@@ -61,35 +69,76 @@ export async function getPaginatedColleges(filters: CollegeListFilter = {}) {
       prisma.college.count({ where }),
     ]);
 
+    const colleges = collegesResult.status === "fulfilled" ? collegesResult.value : [];
+    const total = totalResult.status === "fulfilled" ? totalResult.value : colleges.length;
+
+    if (collegesResult.status === "rejected") {
+      console.warn("Colleges findMany error:", collegesResult.reason);
+      throw collegesResult.reason;
+    }
+
     return {
       colleges,
       total,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / limit) || 1,
     };
-  } catch (error) {
-    console.error("Error in getPaginatedColleges:", error);
-    throw new Error("Failed to load college directory");
+  };
+
+  try {
+    return await queryFn();
+  } catch (firstError) {
+    console.warn("First attempt failed in getPaginatedColleges, retrying once...", firstError);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return await queryFn();
+    } catch (retryError) {
+      console.error("Critical error in getPaginatedColleges after retry:", retryError);
+      return {
+        colleges: [],
+        total: 0,
+        pages: 1,
+      };
+    }
   }
 }
 
-export async function getCollegeStats() {
-  try {
-    const [totalColleges, activeColleges, totalStudents, totalFaculty, creditAccounts] =
-      await Promise.all([
-        prisma.college.count(),
-        prisma.college.count({ where: { status: "active" } }),
-        prisma.collegeStudent.count(),
-        prisma.collegeFaculty.count(),
-        prisma.collegeCreditAccount.aggregate({
-          _sum: {
-            totalAllocated: true,
-            balance: true,
-            totalDistributed: true,
-          },
-        }),
-      ]);
+export async function getCollegeStats(forceFresh = false) {
+  const now = Date.now();
+  if (!forceFresh && cachedStats && now - cachedStats.timestamp < STATS_CACHE_TTL_MS) {
+    return cachedStats.data;
+  }
 
-    return {
+  try {
+    const [
+      totalCollegesRes,
+      activeCollegesRes,
+      totalStudentsRes,
+      totalFacultyRes,
+      creditAccountsRes,
+    ] = await Promise.allSettled([
+      prisma.college.count(),
+      prisma.college.count({ where: { status: "active" } }),
+      prisma.collegeStudent.count(),
+      prisma.collegeFaculty.count(),
+      prisma.collegeCreditAccount.aggregate({
+        _sum: {
+          totalAllocated: true,
+          balance: true,
+          totalDistributed: true,
+        },
+      }),
+    ]);
+
+    const totalColleges = totalCollegesRes.status === "fulfilled" ? totalCollegesRes.value : 0;
+    const activeColleges = activeCollegesRes.status === "fulfilled" ? activeCollegesRes.value : 0;
+    const totalStudents = totalStudentsRes.status === "fulfilled" ? totalStudentsRes.value : 0;
+    const totalFaculty = totalFacultyRes.status === "fulfilled" ? totalFacultyRes.value : 0;
+    const creditAccounts =
+      creditAccountsRes.status === "fulfilled"
+        ? creditAccountsRes.value
+        : { _sum: { totalAllocated: 0, balance: 0, totalDistributed: 0 } };
+
+    const data = {
       totalColleges,
       activeColleges,
       totalStudents,
@@ -98,8 +147,14 @@ export async function getCollegeStats() {
       totalCreditBalance: creditAccounts._sum.balance || 0,
       totalCreditsDistributed: creditAccounts._sum.totalDistributed || 0,
     };
+
+    cachedStats = { data, timestamp: Date.now() };
+    return data;
   } catch (error) {
     console.error("Error in getCollegeStats:", error);
+    if (cachedStats) {
+      return cachedStats.data;
+    }
     return {
       totalColleges: 0,
       activeColleges: 0,
