@@ -160,7 +160,7 @@ export function CollegesView({
   };
 
   const handleToggleStatus = (college: any) => {
-    const nextStatus = college.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
+    const nextStatus = college.status === "active" ? "suspended" : "active";
     startTransition(async () => {
       const res = await updateCollegeStatus({
         collegeId: college.id,
@@ -294,9 +294,9 @@ export function CollegesView({
             className="px-3 py-2.5 bg-zinc-950/70 border border-zinc-800 rounded-xl text-xs text-zinc-300 focus:outline-none focus:border-rose-500 cursor-pointer"
           >
             <option value="all">All Statuses</option>
-            <option value="ACTIVE">Active</option>
-            <option value="SUSPENDED">Suspended</option>
-            <option value="PENDING_ONBOARDING">Pending</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="suspended">Suspended</option>
           </select>
           <button
             type="submit"
@@ -415,16 +415,16 @@ export function CollegesView({
                       <td className="px-6 py-4">
                         <span
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                            college.status === "ACTIVE"
+                            college.status === "active"
                               ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-                              : college.status === "PENDING_ONBOARDING"
+                              : college.status === "inactive"
                               ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
                               : "bg-rose-500/10 text-rose-400 border-rose-500/25"
                           }`}
                         >
                           <span
                             className={`w-1.5 h-1.5 rounded-full bg-current ${
-                              college.status === "ACTIVE" ? "animate-pulse" : ""
+                              college.status === "active" ? "animate-pulse" : ""
                             }`}
                           />
                           {college.status}
@@ -447,12 +447,12 @@ export function CollegesView({
                             onClick={() => handleToggleStatus(college)}
                             disabled={isPending}
                             className={`px-2.5 py-1.5 border rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                              college.status === "ACTIVE"
+                              college.status === "active"
                                 ? "bg-zinc-900 hover:bg-rose-950/30 border-zinc-800 hover:border-rose-800/60 text-zinc-400 hover:text-rose-400"
                                 : "bg-emerald-950/30 hover:bg-emerald-900/40 border-emerald-800/60 text-emerald-300"
                             }`}
                           >
-                            {college.status === "ACTIVE" ? "Suspend" : "Activate"}
+                            {college.status === "active" ? "Suspend" : "Activate"}
                           </button>
                         </div>
                       </td>
