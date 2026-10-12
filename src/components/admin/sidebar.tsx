@@ -14,6 +14,7 @@ import {
   Settings,
   LogOut,
   Sparkles,
+  GraduationCap,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -34,6 +35,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/admin",
     icon: LayoutDashboard,
     allowedRoles: ["admin", "manager", "support"],
+  },
+  {
+    name: "Colleges & Universities",
+    href: "/admin/colleges",
+    icon: GraduationCap,
+    allowedRoles: ["admin", "manager"],
   },
   {
     name: "User Directory",
