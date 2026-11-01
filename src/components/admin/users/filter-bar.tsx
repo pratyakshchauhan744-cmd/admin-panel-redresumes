@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search, SlidersHorizontal, RotateCcw } from "lucide-react";
+import { Search, RotateCcw } from "lucide-react";
+import { SchoolFilter } from "./school-filter";
 
-export function UsersFilterBar() {
+interface UsersFilterBarProps {
+  schools: { id: string; name: string; code: string }[];
+}
+
+export function UsersFilterBar({ schools }: UsersFilterBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -12,13 +17,21 @@ export function UsersFilterBar() {
   const [query, setQuery] = useState(searchParams.get("query") || "");
   const [role, setRole] = useState(searchParams.get("role") || "all");
   const [status, setStatus] = useState(searchParams.get("status") || "all");
+  const [school, setSchool] = useState(searchParams.get("school") || "all");
+
+  useEffect(() => {
+    setQuery(searchParams.get("query") || "");
+    setRole(searchParams.get("role") || "all");
+    setStatus(searchParams.get("status") || "all");
+    setSchool(searchParams.get("school") || "all");
+  }, [searchParams]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     updateUrlParams();
   };
 
-  const updateUrlParams = (updatedRole = role, updatedStatus = status) => {
+  const updateUrlParams = (updatedRole = role, updatedStatus = status, updatedSchool = school) => {
     const params = new URLSearchParams(searchParams.toString());
     
     // Page reset to 1 when filters change
@@ -42,6 +55,12 @@ export function UsersFilterBar() {
       params.delete("status");
     }
 
+    if (updatedSchool !== "all") {
+      params.set("school", updatedSchool);
+    } else {
+      params.delete("school");
+    }
+
     router.push(`/admin/users?${params.toString()}`);
   };
 
@@ -49,21 +68,23 @@ export function UsersFilterBar() {
     setQuery("");
     setRole("all");
     setStatus("all");
+    setSchool("all");
     router.push("/admin/users");
   };
 
   return (
     <form
       onSubmit={handleSearchSubmit}
-      className="glass-panel p-4 rounded-xl border border-zinc-800/80 bg-zinc-950/20 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm shrink-0 select-none"
+      className="glass-panel relative z-20 p-4 rounded-xl border border-zinc-800/80 bg-zinc-950/20 flex flex-col xl:flex-row gap-4 items-center justify-between shadow-sm shrink-0 select-none"
     >
       {/* Search Input field */}
-      <div className="relative w-full md:max-w-xs shrink-0">
+      <div className="relative w-full xl:max-w-xs shrink-0">
         <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
           <Search className="w-4 h-4" />
         </span>
         <input
           type="text"
+          aria-label="Search users"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search name, email, or ID..."
@@ -72,9 +93,19 @@ export function UsersFilterBar() {
       </div>
 
       {/* Selector Filters */}
-      <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+      <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+        <SchoolFilter
+          schools={schools}
+          value={school}
+          onChange={(value) => {
+            setSchool(value);
+            updateUrlParams(role, status, value);
+          }}
+        />
+
         {/* Role filter */}
         <select
+          aria-label="Filter by role"
           value={role}
           onChange={(e) => {
             setRole(e.target.value);
@@ -83,6 +114,7 @@ export function UsersFilterBar() {
           className="px-3 py-2 bg-zinc-900 border border-zinc-800 text-xs text-zinc-300 rounded-lg focus:outline-none focus:border-rose-500/80 transition-all cursor-pointer"
         >
           <option value="all">All Roles</option>
+          <option value="student">Students</option>
           <option value="candidate">Candidates</option>
           <option value="employer">Employers</option>
           <option value="support">Support Agents</option>
@@ -92,6 +124,7 @@ export function UsersFilterBar() {
 
         {/* Status filter */}
         <select
+          aria-label="Filter by status"
           value={status}
           onChange={(e) => {
             setStatus(e.target.value);
@@ -118,6 +151,7 @@ export function UsersFilterBar() {
           onClick={handleClear}
           className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg transition-all cursor-pointer"
           title="Clear search queries"
+          aria-label="Clear all filters"
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>

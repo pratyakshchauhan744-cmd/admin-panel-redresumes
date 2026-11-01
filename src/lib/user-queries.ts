@@ -1,10 +1,11 @@
 import { prisma } from "./prisma";
-import { UserRole } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 
 export interface UserListFilter {
   query?: string;
   role?: string;
   status?: "active" | "suspended" | "all";
+  school?: string;
   page?: number;
   limit?: number;
   sortBy?: "createdAt" | "name" | "email";
@@ -22,7 +23,7 @@ export async function getPaginatedUsers(filters: UserListFilter) {
   const sortOrder = filters.sortOrder || "desc";
 
   // Build prisma query condition
-  const where: any = {};
+  const where: Prisma.UserWhereInput = {};
 
   // 1. Text Search across name, email, or ID
   if (filters.query) {
@@ -43,6 +44,22 @@ export async function getPaginatedUsers(filters: UserListFilter) {
     where.isActive = filters.status === "active";
   }
 
+  // A school selection scopes the directory to student/candidate accounts.
+  // Check both links so enrolled students are not mistaken for direct signups.
+  if (filters.school && filters.school !== "all") {
+    where.AND = [
+      { role: { in: ["student", "candidate"] } },
+      filters.school === "other"
+        ? { collegeId: null, studentProfile: { is: null } }
+        : {
+            OR: [
+              { collegeId: filters.school },
+              { studentProfile: { is: { collegeId: filters.school } } },
+            ],
+          },
+    ];
+  }
+
   try {
     const [users, total] = await Promise.all([
       prisma.user.findMany({
@@ -60,6 +77,14 @@ export async function getPaginatedUsers(filters: UserListFilter) {
           isActive: true,
           createdAt: true,
           phone: true,
+          college: {
+            select: { id: true, name: true, code: true },
+          },
+          studentProfile: {
+            select: {
+              college: { select: { id: true, name: true, code: true } },
+            },
+          },
         },
       }),
       prisma.user.count({ where }),

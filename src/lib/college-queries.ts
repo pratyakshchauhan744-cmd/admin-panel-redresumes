@@ -7,6 +7,14 @@ export interface CollegeListFilter {
   limit?: number;
 }
 
+// The school filter needs every institution, independent of list pagination/status.
+export async function getSchoolFilterOptions() {
+  return prisma.college.findMany({
+    select: { id: true, name: true, code: true },
+    orderBy: [{ name: "asc" }, { code: "asc" }],
+  });
+}
+
 // In-memory cache for college stats with a 30-second TTL to avoid proxy connection bottleneck
 let cachedStats: { data: any; timestamp: number } | null = null;
 const STATS_CACHE_TTL_MS = 30 * 1000;
