@@ -7,7 +7,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthorized } from "@/lib/auth";
 import { logAdminAction } from "@/lib/audit";
-import { sendInstitutionWelcomeEmail } from "@/lib/email";
+import { getInstitutionLoginUrl, sendInstitutionWelcomeEmail } from "@/lib/email";
 import { invalidateTelemetryCache } from "@/lib/dashboard-queries";
 import { invalidateCollegeStatsCache } from "@/lib/college-queries";
 
@@ -15,11 +15,11 @@ const CreateCollegeSchema = z.object({
   name: z.string().min(2, "College name must be at least 2 characters"),
   code: z.string().min(2, "Code must be at least 2 characters").toUpperCase(),
   domain: z.string().min(3, "Domain is required"),
-  contactEmail: z.string().optional().or(z.literal("")),
+  contactEmail: z.string().trim().email("Official / Placement email must be valid").optional().or(z.literal("")),
   contactPhone: z.string().optional().or(z.literal("")),
   initialCredits: z.number().int().min(0).default(0),
   mainFacultyName: z.string().min(2, "Main faculty name is required"),
-  mainFacultyEmail: z.string().email("Main faculty email must be valid"),
+  mainFacultyEmail: z.string().trim().toLowerCase().email("Main faculty email must be valid"),
   mainFacultyPhone: z.string().optional().or(z.literal("")),
   password: z.string().optional().or(z.literal("")),
 });
@@ -36,7 +36,7 @@ const UpdateStatusSchema = z.object({
 });
 
 export async function createCollege(rawInput: unknown): Promise<
-  | { success: true; college: any; facultyEmail: string; tempPassword?: string; emailSent?: boolean }
+  | { success: true; college: any; facultyEmail: string; tempPassword: string; emailSent: boolean; emailError?: string; emailRecipients: string[] }
   | { success: false; error: string }
 > {
   let session;
@@ -273,26 +273,29 @@ export async function createCollege(rawInput: unknown): Promise<
     invalidateCollegeStatsCache();
 
     // 8. Dispatch Institutional Welcome Email with Credentials & Portal URL
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
-    const loginUrl = `${appUrl}/login?portal=enterprise`;
-
+    const emailRecipients = [...new Set([mainFacultyEmail, effectiveContactEmail])];
     let emailSent = false;
+    let emailError: string | undefined;
     try {
+      const loginUrl = getInstitutionLoginUrl();
       const emailRes = await sendInstitutionWelcomeEmail({
-        to: mainFacultyEmail,
+        to: emailRecipients,
+        loginEmail: mainFacultyEmail,
         recipientName: mainFacultyName,
         collegeName: name,
         collegeCode: code,
         password: result.tempPassword,
         loginUrl,
       });
-      emailSent = Boolean(emailRes.success);
+      emailSent = emailRes.success;
+      if (!emailRes.success) emailError = emailRes.error;
     } catch (emailErr) {
-      console.error("Failed to dispatch welcome email to institution:", emailErr);
+      emailError = emailErr instanceof Error ? emailErr.message : "The welcome email could not be submitted to Resend.";
+      console.error("[INSTITUTION EMAIL ERROR] Welcome email dispatch failed.");
     }
 
     revalidatePath("/admin/colleges");
-    return { success: true, ...result, emailSent };
+    return { success: true, ...result, emailSent, emailError, emailRecipients };
   } catch (error: any) {
     console.error("Failed to create college:", error);
     return { success: false, error: error.message || "Failed to onboard college" };

@@ -50,7 +50,7 @@ export function CollegesView({
 
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [creditModalCollege, setCreditModalCollege] = useState<any | null>(null);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
 
   // Form states - Onboarding
   const [onboardData, setOnboardData] = useState({
@@ -106,8 +106,10 @@ export function CollegesView({
 
       if (res.success) {
         setFeedback({
-          type: "success",
-          message: `College "${onboardData.name}" onboarded successfully! Welcome email with login credentials has been sent to ${res.facultyEmail}. (Password: ${res.tempPassword})`,
+          type: res.emailSent ? "success" : "warning",
+          message: res.emailSent
+            ? `College "${onboardData.name}" onboarded successfully! Resend accepted the credentials email for ${res.emailRecipients.join(" and ")}. Login ID: ${res.facultyEmail}.`
+            : `College "${onboardData.name}" was onboarded, but the credentials email could not be confirmed for ${res.emailRecipients.join(" and ")}. ${res.emailError || "Check the Resend logs."} Save these credentials and share them securely: Login ID: ${res.facultyEmail}. Password: ${res.tempPassword}. The college is already created; do not onboard it again.`,
         });
         setIsOnboardOpen(false);
         setOnboardData({
@@ -256,14 +258,16 @@ export function CollegesView({
           className={`p-4 rounded-xl border flex items-start justify-between gap-3 text-sm ${
             feedback.type === "success"
               ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-200"
-              : "bg-rose-950/40 border-rose-800/60 text-rose-200"
+              : feedback.type === "warning"
+                ? "bg-amber-950/40 border-amber-800/60 text-amber-200"
+                : "bg-rose-950/40 border-rose-800/60 text-rose-200"
           }`}
         >
           <div className="flex items-center gap-2">
             {feedback.type === "success" ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
             ) : (
-              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+              <AlertTriangle className={`w-5 h-5 shrink-0 ${feedback.type === "warning" ? "text-amber-400" : "text-rose-400"}`} />
             )}
             <span>{feedback.message}</span>
           </div>
@@ -648,7 +652,7 @@ export function CollegesView({
                       className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500 font-mono"
                     />
                     <p className="text-[11px] text-zinc-500 mt-1">
-                      If left empty, a secure password is generated automatically. The credentials and enterprise portal link will be emailed to the administrator.
+                      If left empty, a secure password is generated automatically. The credentials and enterprise portal link will be emailed to both the Main Faculty Administrator and the Official / Placement email, when provided. The Main Faculty email is the login ID.
                     </p>
                   </div>
                 </div>
