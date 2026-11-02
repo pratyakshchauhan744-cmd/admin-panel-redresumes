@@ -9,6 +9,8 @@ export type InstitutionEmailResult =
 export function getInstitutionLoginUrl(): string {
   const portalUrl = process.env.INSTITUTION_PORTAL_URL?.trim();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  console.log(portalUrl+"1st")
+  console.log(appUrl+"second")
 
   if (!portalUrl && !appUrl && process.env.NODE_ENV === "production") {
     throw new Error("Configure INSTITUTION_PORTAL_URL or NEXT_PUBLIC_APP_URL with the institution portal URL.");

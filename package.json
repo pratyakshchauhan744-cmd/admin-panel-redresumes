@@ -8,6 +8,7 @@
     "build": "npm run prisma:generate && next build",
     "start": "next start --port 3001",
     "test": "node --test",
+    "seed:delete-college": "node prisma/seed-delete-college.mjs",
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
